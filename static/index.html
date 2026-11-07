@@ -33,6 +33,7 @@
   <div class="card">
     <div class="row">
       <button id="go">Start tuning</button>
+      <button id="safety" style="background:#b42318">Run safety test</button>
       <span id="goal" class="sub" style="margin:0"></span>
       <span id="mode" class="badge" hidden></span>
     </div>
@@ -106,7 +107,7 @@ $('go').onclick = () => {
   const stop = () => { es.close(); $('go').disabled = false; };
   es.addEventListener('start', e => {
     const d = JSON.parse(e.data); $('goal').textContent = d.goal;
-    const b = $('mode'); b.hidden = false; b.textContent = d.mode === 'mock' ? 'Demo mode (scripted, no AI)' : 'Live AI';
+    const b = $('mode'); b.hidden = false; b.textContent = d.mode === 'mock' ? 'Demo mode (scripted, no AI)' : 'Live AI · ' + d.model;
   });
   es.addEventListener('attempt', e => addAttempt(JSON.parse(e.data)));
   es.addEventListener('done', () => { stop(); showFinal(); });
@@ -114,6 +115,29 @@ $('go').onclick = () => {
   es.addEventListener('busy', msg); es.addEventListener('failed', msg);
   es.onerror = stop;
 };
+   $('safety').onclick = async () => {
+     $('safety').disabled = true; $('go').disabled = true; $('final').innerHTML = '';
+     $('log').innerHTML = '<div class="card">Safety test: sending a deliberately broken controller (an endless loop, written by us, not by the AI) into the sandbox. This takes about 10 seconds.</div>';
+     try {
+       const d = await (await fetch('/api/safety-test')).json();
+       const div = document.createElement('div'); div.className = 'card';
+       if (d.status === 'busy') {
+         div.classList.add('safe'); div.textContent = d.message;
+       } else {
+         const stopped = d.result.status === 'stopped';
+         div.innerHTML = '<div class="row"><strong>Safety test</strong><span class="badge bad">' + d.result.status + '</span></div>' +
+           '<div class="safe"></div><details open><summary>The broken code we sent</summary><pre></pre></details>';
+         div.querySelector('.safe').textContent = stopped
+           ? 'Run stopped safely. The sandbox killed the endless loop at the time limit. Nothing else was affected.'
+           : 'Unexpected result: ' + (d.result.error || d.result.status);
+         div.querySelector('pre').textContent = d.code;
+       }
+       $('log').innerHTML = ''; $('log').appendChild(div);
+     } catch (e) {
+       $('log').innerHTML = '<div class="card safe">The safety test could not run.</div>';
+     }
+     $('safety').disabled = false; $('go').disabled = false;
+   };
 </script>
 </body>
 </html>
