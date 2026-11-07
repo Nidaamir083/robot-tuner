@@ -49,11 +49,12 @@ def run():
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-   SAFETY_TEST_CODE = """class Controller:
-       def update(self, target, angle, velocity, dt):
-           while True:
-               pass
-   """
+
+SAFETY_TEST_CODE = """class Controller:
+    def update(self, target, angle, velocity, dt):
+        while True:
+            pass
+"""
 
 
 @app.get("/api/safety-test")
