@@ -17,7 +17,16 @@ def load_controller():
     spec = importlib.util.spec_from_file_location("candidate", os.path.join(WORK, "candidate.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.Controller()
+    cls = getattr(mod, "Controller", None)
+    if cls is None:  # tolerate other class names (e.g. PIDController) if they have update()
+        for obj in vars(mod).values():
+            if isinstance(obj, type) and obj.__module__ == mod.__name__ and callable(getattr(obj, "update", None)):
+                cls = obj
+                break
+    if cls is None:
+        names = [n for n in vars(mod) if not n.startswith("__")]
+        raise AttributeError("no class named Controller with an update() method; the code defines: " + ", ".join(names[:12]))
+    return cls()
 
 
 def simulate(ctrl):
