@@ -21,6 +21,8 @@ def load_env(path=".env"):
             k, v = line.split("=", 1)
             os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
+HAS_CONTROLLER = re.compile(r"^\s*class\s+Controller\b", re.M)
+
 
 def extract_code(text: str) -> str:
     """Pick the python block that defines Controller (models sometimes add other snippets)."""
@@ -83,15 +85,22 @@ def propose(goal, history) -> str:
                 {"role": "user", "content": _user_prompt(goal, history)}]
 
     def ask():
-        reply = client.chat.completions.create(
-            model=os.environ["LLM_MODEL"], messages=messages, temperature=0.4, max_tokens=4000)
-        return reply.choices[0].message.content or ""
+        kwargs = dict(model=os.environ["LLM_MODEL"], messages=messages, temperature=0.4, max_tokens=8000)
+        try:  # low reasoning effort: the model must leave room to actually write the code
+            reply = client.chat.completions.create(extra_body={"reasoning_effort": "low"}, **kwargs)
+        except Exception:
+            reply = client.chat.completions.create(**kwargs)
+        choice = reply.choices[0]
+        return choice.message.content or "", choice.finish_reason
 
-    text = ask()
+    text, why = ask()
     code = extract_code(text)
-    if "class Controller" not in code:  # one polite retry if the format was wrong
+    if not HAS_CONTROLLER.search(code):  # one polite retry if the reply was empty or in the wrong format
         messages += [{"role": "assistant", "content": text or "(empty)"},
                      {"role": "user", "content": "Your reply must contain ONE python code block that defines "
                       "`class Controller` with `update(self, target, angle, velocity, dt)`. Reply again."}]
-        code = extract_code(ask())
+        text, why = ask()
+        code = extract_code(text)
+    if not text.strip():
+        return f"# The model returned an empty reply (finish_reason={why}).\n"
     return code
