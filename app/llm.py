@@ -23,7 +23,14 @@ def load_env(path=".env"):
 
 
 def extract_code(text: str) -> str:
-    m = re.search(r"```(?:python)?\s*\n(.*?)```", text, re.DOTALL)
+    """Pick the python block that defines Controller (models sometimes add other snippets)."""
+    blocks = re.findall(r"```(?:python|py)?[ \t]*\n(.*?)```", text, re.DOTALL)
+    for b in blocks:
+        if "class Controller" in b:
+            return b.strip() + "\n"
+    if blocks:
+        return blocks[-1].strip() + "\n"
+    m = re.search(r"```(?:python|py)?[ \t]*\n(.*)$", text, re.DOTALL)  # fence never closed
     return (m.group(1) if m else text).strip() + "\n"
 
 
@@ -72,10 +79,19 @@ def propose(goal, history) -> str:
         return _MOCK[min(len(history), len(_MOCK) - 1)]
     from openai import OpenAI  # imported only when a real key is used
     client = OpenAI(base_url=os.environ["LLM_BASE_URL"], api_key=os.environ["LLM_API_KEY"])
-    reply = client.chat.completions.create(
-        model=os.environ["LLM_MODEL"],
-        messages=[{"role": "system", "content": SYSTEM},
-                  {"role": "user", "content": _user_prompt(goal, history)}],
-        temperature=0.4,
-    )
-    return extract_code(reply.choices[0].message.content)
+    messages = [{"role": "system", "content": SYSTEM},
+                {"role": "user", "content": _user_prompt(goal, history)}]
+
+    def ask():
+        reply = client.chat.completions.create(
+            model=os.environ["LLM_MODEL"], messages=messages, temperature=0.4, max_tokens=4000)
+        return reply.choices[0].message.content or ""
+
+    text = ask()
+    code = extract_code(text)
+    if "class Controller" not in code:  # one polite retry if the format was wrong
+        messages += [{"role": "assistant", "content": text or "(empty)"},
+                     {"role": "user", "content": "Your reply must contain ONE python code block that defines "
+                      "`class Controller` with `update(self, target, angle, velocity, dt)`. Reply again."}]
+        code = extract_code(ask())
+    return code
